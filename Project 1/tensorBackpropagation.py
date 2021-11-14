@@ -57,7 +57,7 @@ def back_propagate(X, Y, params, cache):
 
 # hyperparameters
 learning_rate = 0.05
-batch_size = 16
+batch_size = 32
 batches = -(-m // batch_size)
 epochs = 5
 
