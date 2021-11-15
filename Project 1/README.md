@@ -1,6 +1,6 @@
-# Deep Learning
+# Assignment 1
 
-Deep Learning Applications for the Course Deep Leaning (2021) at Vrije Universiteit Amsterdam.
+Building a scalar and tensor network for classifying basic MNIST data.
 
 - data.py, contains a basic function to load synthetic training data and MNIST dataset, by Peter Bloem (2020)
 - scalarBackpropagation.py, contains an implementation of a simple scalar neural network, using only basic python and the math library, used to train a network on simple synthetic data
