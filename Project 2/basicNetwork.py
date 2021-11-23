@@ -1,4 +1,4 @@
-from vugrad import vugrad as vg
+import vugrad as vg
 import numpy as np
 
 # Create two Tensor nodes with
