@@ -1,5 +1,5 @@
 import numpy as np
-
+import matplotlib.pyplot as plt
 import vugrad as vg
 
 # Create a simple neural network.
@@ -10,13 +10,15 @@ class MLP(vg.Module):
     output.
     """
 
-    def __init__(self, input_size, output_size, hidden_mult=4):
+    def __init__(self, input_size, output_size, method, hidden_mult=4):
         """
         :param input_size:
         :param output_size:
         :param hidden_mult: Multiplier that indicates how many times bigger the hidden layer is than the input layer.
         """
         super().__init__()
+
+        self.method = method
 
         hidden_size = hidden_mult * input_size
         # -- There is no common wisdom on how big the hidden size should be, apart from the idea
@@ -35,7 +37,8 @@ class MLP(vg.Module):
         hidden = self.layer1(input)
 
         # non-linearity
-        hidden = vg.sigmoid(hidden)
+        if self.method == 'sigmoid': hidden = vg.sigmoid(hidden)
+        elif self.method == 'relu': hidden = relu(hidden)
         # -- We've called a utility function here, to mimin how this is usually done in pytorch. We could also do:
         #    hidden = Sigmoid.do_forward(hidden)
 
@@ -54,11 +57,37 @@ class MLP(vg.Module):
 
         return self.layer1.parameters() + self.layer2.parameters()
 
+class ReLU(vg.Op):
+
+    @staticmethod
+    def forward(context, input):
+
+        relux = np.maximum(0, input)
+        context['relux'] = relux
+        return relux
+
+    @staticmethod
+    def backward(context, goutput):
+        relux = context['relux']
+        return goutput * 1. * (relux > 0)
+
+def relu(x):
+    return ReLU.do_forward(x)
+
+# batch size
+b = 128
+
+# epochs
+epochs = 20
+
+# learning rate
+lr = 0.0001
+
 # synth data
 # (xtrain, ytrain), (xval, yval), num_classes = vg.load_synth()
 
 # mnist data
-# (xtrain, ytrain), (xval, yval), num_classes = vg.load_mnist(final=False, flatten=True)
+(xtrain, ytrain), (xval, yval), num_classes = vg.load_mnist(final=False, flatten=True)
 
 print(f'## loaded data:')
 print(f'         number of instances: {xtrain.shape[0]} in training, {xval.shape[0]} in validation')
@@ -67,69 +96,85 @@ print(f'     val. class distribution: {np.bincount(yval)}')
 num_instances, num_features = xtrain.shape
 
 ## Instantiate the model
-mlp = MLP(input_size=num_features, output_size=num_classes)
+method = ['sigmoid', 'relu']
 
-n, m = xtrain.shape
-b = args.batch_size
+for met in method:
 
-print('\n## Starting training')
-for epoch in range(args.epochs):
+    if met == 'relu': xtrain, xval = xtrain/255, xval/255
 
-    print(f'epoch {epoch:03}')
+    mlp = MLP(input_size=num_features, output_size=num_classes, method=met)
+    n, m = xtrain.shape
+    globals()['accuracy_'+met] = []
 
-    ## Compute validation accuracy
-    o = mlp(vg.TensorNode(xval))
-    oval = o.value
+    print('\n## Starting training')
+    for epoch in range(epochs):
 
-    predictions = np.argmax(oval, axis=1)
-    num_correct = (predictions == yval).sum()
-    acc = num_correct / yval.shape[0]
+        print(f'epoch {epoch:03}')
 
-    o.clear() # gc the computation graph
-    print(f'       accuracy: {acc:.4}')
+        ## Compute validation accuracy
+        o = mlp(vg.TensorNode(xval))
+        oval = o.value
 
-    cl = 0.0 # running sum of the training loss
+        predictions = np.argmax(oval, axis=1)
+        num_correct = (predictions == yval).sum()
+        acc = num_correct / yval.shape[0]
+        globals()['accuracy_'+met].append(acc)
 
-    # We loop over the data in batches of size `b`
-    for fr in range(0, n, b):
+        o.clear() # gc the computation graph
+        print(f'       accuracy: {acc:.4}')
 
-        # The end index of the batch
-        to = min(fr + b, n)
+        cl = 0.0 # running sum of the training loss
 
-        # Slice out the batch and its corresponding target values
-        batch, targets = xtrain[fr:to, :], ytrain[fr:to]
+        # We loop over the data in batches of size `b`
+        for fr in range(0, n, b):
 
-        # Wrap the inputs in a Node
-        batch = vg.TensorNode(value=batch)
+            # The end index of the batch
+            to = min(fr + b, n)
 
-        outputs = mlp(batch)
-        loss = vg.logceloss(outputs, targets)
-        # -- The computation graph is now complete. It consists of the MLP, together with the computation of
-        #    the scalar loss.
-        # -- The variable `loss` is the TensorNode at the very top of our computation graph. This means we can call
-        #    it to perform operations on the computation graph, like clearing the gradients, starting the backpropgation
-        #    and clearing the graph.
-        # -- Note that we set the MLP up to produce log probabilties, so we should compute the CE loss for these.
+            # Slice out the batch and its corresponding target values
+            batch, targets = xtrain[fr:to, :], ytrain[fr:to]
 
-        cl += loss.value
-        # -- We must be careful here to extract the _raw_ value for the running loss. What would happen if we kept
-        #    a running sum using the TensorNode?
+            # Wrap the inputs in a Node
+            batch = vg.TensorNode(value=batch)
 
-        # Start the backpropagation
-        loss.backward()
+            outputs = mlp(batch)
+            loss = vg.logceloss(outputs, targets)
+            # -- The computation graph is now complete. It consists of the MLP, together with the computation of
+            #    the scalar loss.
+            # -- The variable `loss` is the TensorNode at the very top of our computation graph. This means we can call
+            #    it to perform operations on the computation graph, like clearing the gradients, starting the backpropgation
+            #    and clearing the graph.
+            # -- Note that we set the MLP up to produce log probabilties, so we should compute the CE loss for these.
 
-        # pply gradient descent
-        for parm in mlp.parameters():
-            parm.value -= args.lr * parm.grad
-            # -- Note that we are directly manipulating the members of the parm TensorNode. This means that for this
-            #    part, we are not building up a computation graph.
+            cl += loss.value
+            # -- We must be careful here to extract the _raw_ value for the running loss. What would happen if we kept
+            #    a running sum using the TensorNode?
 
-        # -- In Pytorch, the gradient descent is abstracted away into an Optimizer. This allows us to build slightly more
-        #    complexoptimizers than plain graident descent.
+            # Start the backpropagation
+            loss.backward()
 
-        # Finally, we need to reset the gradients to zero ...
-        loss.zero_grad()
-        # ... and delete the parts of the computation graph we don't need to remember.
-        loss.clear()
+            # pply gradient descent
+            for parm in mlp.parameters():
+                parm.value -= lr * parm.grad
+                # -- Note that we are directly manipulating the members of the parm TensorNode. This means that for this
+                #    part, we are not building up a computation graph.
 
-    print(f'   running loss: {cl/n:.4}')
+            # -- In Pytorch, the gradient descent is abstracted away into an Optimizer. This allows us to build slightly more
+            #    complexoptimizers than plain graident descent.
+
+            # Finally, we need to reset the gradients to zero ...
+            loss.zero_grad()
+            # ... and delete the parts of the computation graph we don't need to remember.
+            loss.clear()
+
+        print(f'   running loss: {cl/n:.4}')
+
+# plotting validation accuracy
+
+plt.plot(np.arange(1, len(accuracy_sigmoid)+1, 1), accuracy_sigmoid, color = 'black', label='Sigmoid')
+plt.plot(np.arange(1, len(accuracy_relu)+1, 1), accuracy_relu, '--', color = 'black', label='ReLU')
+plt.xlabel('Training Epoch')
+plt.ylabel('Validation Accuracy')
+plt.xticks(ticks=np.arange(1, len(accuracy_sigmoid)+1, 1))
+plt.legend()
+plt.show()
