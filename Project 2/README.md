@@ -1,6 +1,6 @@
 # Assignment 2
 
-Build some more advanced network and experiment with PyTorch library.
+Build some more advanced networks and experiment with PyTorch library.
 
 - vugrad, this folder contains code a mini autodiff library by Peter Bloem (2021) for the course Deep Learning at VU Amsterdam
 - basicNetwork.py, contains the code for creating a basic computational graph with two tensors and a sum operation
